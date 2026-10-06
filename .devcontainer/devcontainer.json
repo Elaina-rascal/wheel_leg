@@ -1,0 +1,26 @@
+{
+    "name": "mujoco",
+    "dockerComposeFile": "docker-compose.yml",
+    "service": "gpu-service",
+    "workspaceFolder": "/home/Elaina/ros2_ws",
+    "remoteUser": "Elaina",
+    "shutdownAction": "stopCompose",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "cschlosser.doxdocgen",
+                "augustocdias.tasks-shell-input",
+                "ms-python.python",
+                "njpwerner.autodocstring",
+                "ms-python.vscode-pylance",
+                "donjayamanne.githistory",
+                "mhutchie.git-graph",
+                "Vizards.deepseek-v4-for-copilot",
+                "ms-toolsai.datawrangler"
+            ]
+        },
+        "jetbrains": {
+            "extensions": []
+        }
+    }
+}
