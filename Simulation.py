@@ -14,9 +14,7 @@ def main():
     i = 0
     t1 = 1
     t2 = 4
-    # WASD 轮子力矩指令，先用较小值避免突然冲出。
-    DRIVE_TORQUE = 1.0
-    TURN_TORQUE = 0.5
+    t3 = 20
     vmc_r = leg_VMC()
     vmc_l = leg_VMC()
     keyboard = KeyboardController()
@@ -43,15 +41,17 @@ def main():
             vmc_l.vmc_calc_torque()
             vmc_r.vmc_calc_torque()
             # vmc.vmc_calc()
-            # W/S 前进/后退，A/D 左/右转。
-            cmd = keyboard.get_command()
-            forward = cmd[0] * DRIVE_TORQUE
-            turn = cmd[1] * TURN_TORQUE
-            w_r = float(np.clip(forward - turn, -4.0, 4.0))
-            w_l = float(np.clip(forward + turn, -4.0, 4.0))
+            w_r = 0
+            w_l = 0
             GBC486.wheel_torque = [w_r,w_l]
             GBC486.joint_torque = [vmc_r.torque_set[1],vmc_r.torque_set[0],vmc_l.torque_set[0],vmc_l.torque_set[1]]
             GBC486.actuator_set_torque()
+
+        #键盘控制指令输入,以及打印数据;运行频率低以降低仿真延迟
+        if i % t3 == 0:
+            cmd = keyboard.get_command()
+            # print(vmc_r.L0,vmc_l.L0)
+
 
 
 if __name__ == '__main__':

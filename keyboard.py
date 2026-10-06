@@ -7,41 +7,33 @@ import time
 class KeyboardController:
     def __init__(self):
         self.command = np.zeros(3)  # 示例：3维控制指令
-        self._pressed = set()
         self.listener = None
         self._init_keyboard()
     
     def _on_press(self, key):
         try:
             if key.char == 'w':
-                self._pressed.add('w')
+                self.command[0] = 1.0  
             elif key.char == 's':
-                self._pressed.add('s')
+                self.command[0] = -1.0  
             elif key.char == 'a':
-                self._pressed.add('a')
+                self.command[1] = -1.0  
             elif key.char == 'd':
-                self._pressed.add('d')
+                self.command[1] = 1.0  
         except AttributeError:
             if key == keyboard.Key.space:
                 self.command[2] = 1.0  
-        self._update_command()
     
     def _on_release(self, key):
         # 释放按键时重置
         try:
             if key.char in ['w', 's']:
-                self._pressed.discard(key.char)
+                self.command[0] = 0.0
             elif key.char in ['a', 'd']:
-                self._pressed.discard(key.char)
+                self.command[1] = 0.0
         except AttributeError:
             if key == keyboard.Key.space:
                 self.command[2] = 0.0
-
-        self._update_command()
-
-    def _update_command(self):
-        self.command[0] = float('w' in self._pressed) - float('s' in self._pressed)
-        self.command[1] = float('d' in self._pressed) - float('a' in self._pressed)
     
     def _init_keyboard(self):
         self.listener = keyboard.Listener(
