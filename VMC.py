@@ -91,11 +91,6 @@ class leg_VMC:
         if phi4 is not None:
             self.phi4 = phi4
         
-        # 从C代码中看，对于右腿，pitch和gyro需要取负号
-        # 但这里保持通用性，根据实际需要调整
-        PitchR = -self.pitch
-        GyroR = -self.gyro
-        
         # 计算B点和D点的坐标
         # D点坐标计算
         self.YD = self.l4 * math.sin(self.phi4)  # D点y坐标
@@ -157,9 +152,10 @@ class leg_VMC:
         self.d_phi0 = (self.phi0 - self.last_phi0) / dt
         self.d_alpha = -self.d_phi0
         
-        # 计算theta和d_theta（状态变量，用于LQR控制）
-        self.theta = math.pi/2.0 - PitchR - self.phi0
-        self.d_theta = -GyroR - self.d_phi0
+        # theta 是虚拟腿方向相对车身局部竖直方向的偏角。
+        # 因此车身倾斜时，theta 不额外叠加 IMU pitch。
+        self.theta = math.pi/2.0 - self.phi0
+        self.d_theta = -self.d_phi0
         
         # 更新last_phi0
         self.last_phi0 = self.phi0
@@ -172,6 +168,115 @@ class leg_VMC:
 
         self.dd_theta = (self.d_theta - self.last_d_theta)/dt
         self.last_d_theta = self.d_theta
+
+    @staticmethod
+    def _circle_intersections(c1, r1, c2, r2):
+        """Return the two intersections of circles, or an empty list."""
+        dx, dy = c2[0] - c1[0], c2[1] - c1[1]
+        distance = math.hypot(dx, dy)
+        if distance < 1e-12 or distance > r1 + r2 or distance < abs(r1 - r2):
+            return []
+        along = (r1*r1 - r2*r2 + distance*distance) / (2.0 * distance)
+        height_sq = r1*r1 - along*along
+        if height_sq < -1e-10:
+            return []
+        height = math.sqrt(max(0.0, height_sq))
+        px = c1[0] + along * dx / distance
+        py = c1[1] + along * dy / distance
+        offset_x = -dy * height / distance
+        offset_y = dx * height / distance
+        return [(px + offset_x, py + offset_y),
+                (px - offset_x, py - offset_y)]
+
+    def _forward_geometry(self, phi1, phi4):
+        """Pure forward-geometry calculation used to check IK branches."""
+        xb = self.l1 * math.cos(phi1)
+        yb = self.l1 * math.sin(phi1)
+        xd = self.l5 + self.l4 * math.cos(phi4)
+        yd = self.l4 * math.sin(phi4)
+        dx, dy = xd - xb, yd - yb
+        lbd = math.hypot(dx, dy)
+        a0 = 2.0 * self.l2 * dx
+        b0 = 2.0 * self.l2 * dy
+        c0 = self.l2*self.l2 + lbd*lbd - self.l3*self.l3
+        discriminant = a0*a0 + b0*b0 - c0*c0
+        if discriminant < -1e-10:
+            return None
+        phi2 = 2.0 * math.atan2(
+            b0 + math.sqrt(max(0.0, discriminant)), a0 + c0
+        )
+        phi3 = math.atan2(
+            yb - yd + self.l2 * math.sin(phi2),
+            xb - xd + self.l2 * math.cos(phi2),
+        )
+        xc = xb + self.l2 * math.cos(phi2)
+        yc = yb + self.l2 * math.sin(phi2)
+        l0 = math.hypot(xc - self.l5/2.0, yc)
+        phi0 = math.atan2(yc, xc - self.l5/2.0)
+        return l0, phi0, phi2, phi3
+
+    def inverse_kinematics(self, target_L0, target_theta=0.0,
+                           seed_phi1=None, seed_phi4=None):
+        """Solve the two actuated link angles for a desired virtual leg pose.
+
+        The target length and angle are defined in the linkage/body frame.
+        ``target_theta=0`` makes the virtual leg perpendicular to the body
+        longitudinal axis (phi0 = 90 degrees), independent of body pitch.
+        Among equivalent linkage branches, the solution closest to the
+        supplied/current joint angles is selected.
+        """
+        if target_L0 <= 0:
+            raise ValueError("target_L0 must be positive")
+        if seed_phi1 is None:
+            seed_phi1 = self.phi1
+        if seed_phi4 is None:
+            seed_phi4 = self.phi4
+
+        # Body-frame target: do not compensate body pitch. The leg follows
+        # the body, so target_theta=0 means phi0 is 90 degrees in this frame.
+        target_phi0 = math.pi/2.0 - target_theta
+        target_c = (
+            self.l5/2.0 + target_L0 * math.cos(target_phi0),
+            target_L0 * math.sin(target_phi0),
+        )
+        b_points = self._circle_intersections(
+            (0.0, 0.0), self.l1, target_c, self.l2
+        )
+        d_points = self._circle_intersections(
+            (self.l5, 0.0), self.l4, target_c, self.l3
+        )
+        if not b_points or not d_points:
+            raise ValueError("目标点超出连杆几何可达范围")
+
+        candidates = []
+        for bx, by in b_points:
+            phi1 = math.atan2(by, bx)
+            for dx, dy in d_points:
+                phi4 = math.atan2(dy, dx - self.l5)
+                pose = self._forward_geometry(phi1, phi4)
+                if pose is None:
+                    continue
+                l0, phi0, _, _ = pose
+                angle_error = math.atan2(
+                    math.sin(phi0 - target_phi0),
+                    math.cos(phi0 - target_phi0),
+                )
+                pose_error = math.hypot(
+                    l0 - target_L0, target_L0 * angle_error
+                )
+                seed_error = (
+                    math.atan2(math.sin(phi1-seed_phi1), math.cos(phi1-seed_phi1))**2
+                    + math.atan2(math.sin(phi4-seed_phi4), math.cos(phi4-seed_phi4))**2
+                )
+                candidates.append((pose_error + 1e-6*seed_error,
+                                   pose_error, phi1, phi4))
+
+        if not candidates:
+            raise ValueError("找不到符合闭环几何的逆解")
+        _, pose_error, phi1, phi4 = min(candidates)
+        if pose_error > 1e-5:
+            raise ValueError("目标点与闭环机构运动学不一致")
+        return phi1, phi4
 
     def vmc_calc_torque(self):
         sin_phi3_phi2 = math.sin(self.phi3 - self.phi2)
@@ -195,5 +300,3 @@ class leg_VMC:
         self.torque_set[0] = self.j21 * self.F0 + self.j22 * self.Tp
 
     #Tp：扭转力；F0：支持力
-
-

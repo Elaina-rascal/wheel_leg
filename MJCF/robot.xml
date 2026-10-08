@@ -38,7 +38,7 @@
 
   <worldbody>
     <!-- <body name="base" pos="0 0 0.5" quat="0.9659258262890683 0 0.25881904510252076 0"> -->
-    <body name="base" pos="0 0 0.2" >
+    <body name="base" pos="0 0 0.2545" >
     <!-- "扣雷挖及悠打"，注释下面这行代码可以让车身悬浮在空中 -->
       <joint name="base_free" type="free"/>
       <site name="imu" type="box" size="0.002 0.002 0.002"  rgba="1 1 0 1"/>
@@ -47,8 +47,8 @@
       
 
       <!-- 右腿臂（蓝色系） -->
-      <body name="AG" pos="-0.01375 -0.1995 0.134" quat="0.707105 0.707108 0 0">
-        <joint name="jAG" pos="0 0 0" axis="0 0 1" range="-1.57 0.3"/>
+      <body name="AG" pos="-0.01375 -0.1995 0.134" quat="0.653999402 0.654002177 0.268854750 -0.268853609">
+        <joint name="jAG" pos="0 0 0" axis="0 0 1" range="-1.57 0.3" ref="-0.780062630"/>
         <site name="AG-D" pos="-0.027 -0.094 0" size="0.002" rgba="0 1 0 1"/> 
         <geom type="mesh" material="arm_blue" mesh="AG"
           class="untouch" mass="0.667"/>
@@ -68,8 +68,8 @@
         </body>
       </body>
 
-      <body name="AB" pos="-0.01375 -0.2155 0.134" quat="0.707105 0.707108 0 0">
-        <joint name="jAB" pos="0 0 0" axis="0 0 1" range="-1.57 0.5"/>
+      <body name="AB" pos="-0.01375 -0.2155 0.134" quat="0.680828903 0.680831791 0.190970668 -0.190969858">
+        <joint name="jAB" pos="0 0 0" axis="0 0 1" range="-1.57 0.5" ref="-0.546937370"/>
         <geom type="mesh" material="joint_mat" mesh="AB"
         class="untouch" mass="0.202"/>
 
@@ -95,8 +95,8 @@
       </body>
       
       <!-- 左腿（红色系） -->
-      <body name="IJ" pos="-0.01375 0.2165 0.134" quat="0.707105 0.707108 0 0">
-        <joint name="jIJ" pos="0 0 0" axis="0 0 -1" range="-0.5 1.57"/>
+      <body name="IJ" pos="-0.01375 0.2165 0.134" quat="0.683616751 0.683619651 0.180737090 -0.180736323">
+        <joint name="jIJ" pos="0 0 0" axis="0 0 -1" range="-0.5 1.57" ref="0.516937370"/>
         <geom type="mesh" material="joint_mat" mesh="IJ"
         class="untouch" mass="0.202"/>
 
@@ -121,8 +121,8 @@
         </body>
       </body>
 
-      <body name="IO" pos="-0.01375 0.2005 0.134" quat="0.707105 0.707108 0 0">
-        <joint name="jIO" pos="0 0 0" axis="0 0 -1" range="-0.3 1.57"/>
+      <body name="IO" pos="-0.01375 0.2005 0.134" quat="0.653999402 0.654002177 0.268854750 -0.268853609">
+        <joint name="jIO" pos="0 0 0" axis="0 0 -1" range="-0.3 1.57" ref="0.780062630"/>
         <site name="IO-L" pos="-0.027 -0.094 0" size="0.01" rgba="0 1 0 1"/> 
         <geom type="mesh" material="arm_red" mesh="IO"
         class="untouch" mass="0.667"/>
@@ -151,10 +151,14 @@
   </equality>
 
   <actuator>
-    <general name="Right_front_joint_act" joint="jAB" gainprm="1" ctrlrange="-20 +20" />
-    <general name="Right_rear_joint_act"  joint="jAG"  gainprm="1" ctrlrange="-20 +20" />
-    <general name="Left_front_joint_act"  joint="jIJ"  gainprm="1" ctrlrange="-20 20"  />
-    <general name="Left_rear_joint_act"   joint="jIO"   gainprm="1" ctrlrange="-20 +20" />
+    <position name="Right_front_joint_act" joint="jAB" kp="100" kv="10"
+              ctrlrange="-1.57 0.5" forcerange="-20 20" />
+    <position name="Right_rear_joint_act" joint="jAG" kp="100" kv="10"
+              ctrlrange="-1.57 0.3" forcerange="-20 20" />
+    <position name="Left_front_joint_act" joint="jIJ" kp="100" kv="10"
+              ctrlrange="-0.5 1.57" forcerange="-20 20" />
+    <position name="Left_rear_joint_act" joint="jIO" kp="100" kv="10"
+              ctrlrange="-0.3 1.57" forcerange="-20 20" />
 
     <general name="Right_Wheel_act"       joint="jwheel_right" gainprm="1" ctrlrange="-4 +4"   />
     <general name="Left_Wheel_act"        joint="jwheel_left"  gainprm="-1" ctrlrange="-4 +4"   />

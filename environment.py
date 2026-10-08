@@ -8,14 +8,33 @@ from caculation import *
 class LegWheelRobot:
     """腿轮机器人仿真类"""
     
-    def __init__(self, model_path: str = 'legwheel_robot1.xml'):
+    def __init__(self, model_path: str = 'legwheel_robot1.xml', fix_legs=False):
         # 加载模型
-        self.model = mujoco.MjModel.from_xml_path(model_path)
+        spec = mujoco.MjSpec.from_file(model_path)
+        if fix_legs:
+            # 固定四个腿驱动关节在 XML 初始角度，机身和轮子仍然自由运动。
+            for name in ('jAB', 'jAG', 'jIJ', 'jIO'):
+                spec.add_equality(type=mujoco.mjtEq.mjEQ_JOINT, name1=name,
+                                  data=[0.0] * 11, solref=[0.002, 1])
+        self.model = spec.compile()
         self.data = mujoco.MjData(self.model)
+        base_free_id = mujoco.mj_name2id(
+            self.model, mujoco.mjtObj.mjOBJ_JOINT, 'base_free'
+        )
+        if base_free_id < 0:
+            raise ValueError("车体速度读取需要名为 base_free 的自由关节")
+        self.base_qpos_adr = self.model.jnt_qposadr[base_free_id]
+        self.base_dof_adr = self.model.jnt_dofadr[base_free_id]
+        self.ik_joint_ids = [
+            mujoco.mj_name2id(self.model, mujoco.mjtObj.mjOBJ_JOINT, name)
+            for name in ('jAB', 'jAG', 'jIJ', 'jIO')
+        ]
+        if any(joint_id < 0 for joint_id in self.ik_joint_ids):
+            raise ValueError("IK control requires joints jAB, jAG, jIJ and jIO")
 
         self.sensor_T = 0.001
         self.sensor_f = 1/self.sensor_T 
-        self.wheel_r = 0.77
+        self.wheel_r = 0.077
 
         self.gyro = []
         self.accel = []
@@ -37,8 +56,13 @@ class LegWheelRobot:
         self.last_left_wheel_pos = 0
         self.last_right_wheel_pos = 0
 
-        self.wheel_torque = [0,0]#顺序：右、左
-        self.joint_torque = [0,0,0,0]#顺序：右前、右后、左前、左后
+        self.wheel_torque: list[float] = [0.0, 0.0]  # 顺序：右、左
+        self.joint_position_target = np.array([
+            self.model.qpos0[self.model.jnt_qposadr[joint_id]]
+            for joint_id in self.ik_joint_ids
+        ])
+        # MuJoCo 的 position actuator 以 ctrl 为角度目标，启动时先对齐初始姿态。
+        self.data.ctrl[:4] = self.joint_position_target
 
 
 
@@ -64,8 +88,9 @@ class LegWheelRobot:
         self.last_right_wheel_pos = self.right_wheel_pos
         self.last_left_wheel_pos = self.left_wheel_pos
         
-        self.d_x = (self.wheel_vel[0] + self.wheel_vel[1]) * 0.5 * 2*math.pi*self.wheel_r / 60
-        self.x = self.x + self.d_x*self.sensor_T
+        # 仿真中读取车体自由关节的世界坐标位置和线速度；轮速仅保留作参考。
+        self.x = float(self.data.qpos[self.base_qpos_adr])
+        self.d_x = float(self.data.qvel[self.base_dof_adr])
 
         # 右前关节位置
         right_front_pos = self.data.sensor('Right_front_joint_pos').data.copy()[0]+0.027  #AB
@@ -78,17 +103,36 @@ class LegWheelRobot:
         self.joint_pos = np.array([right_front_pos, right_rear_pos, left_front_pos, left_rear_pos])
         
 
-    def actuator_set_torque(self):
-        """设置执行器力矩"""
-        # 设置关节力矩
-        self.data.ctrl[0] = self.joint_torque[0]  # 右前关节
-        self.data.ctrl[1] = self.joint_torque[1]  # 右后关节
-        self.data.ctrl[2] = self.joint_torque[2]  # 左前关节
-        self.data.ctrl[3] = self.joint_torque[3]  # 左后关节
+    def actuator_set_control(self):
+        """写入腿部位置目标和轮端力矩控制量。"""
+        self.data.ctrl[:4] = self.joint_position_target
         
         # 设置轮子力矩
         self.data.ctrl[4] = self.wheel_torque[0]  # 右轮
         self.data.ctrl[5] = self.wheel_torque[1]  # 左轮（注意gainprm为-1）
+
+    @staticmethod
+    def _vmc_angles_to_qpos(phi1_right, phi4_right, phi1_left, phi4_left):
+        return np.array([
+            phi1_right - math.pi - 0.027,  # jAB
+            phi4_right - 1.3,             # jAG
+            phi4_left - 0.003,            # jIJ
+            phi1_left - math.pi + 1.3,    # jIO
+        ])
+
+    def set_vmc_ik_targets(self, phi1_right, phi4_right,
+                           phi1_left, phi4_left):
+        """Map VMC link-angle targets to the MuJoCo position-servo setpoints."""
+        joint_ids = self.ik_joint_ids
+        qpos_target = self._vmc_angles_to_qpos(
+            phi1_right, phi4_right, phi1_left, phi4_left
+        )
+        qpos_target = np.clip(
+            qpos_target,
+            self.model.jnt_range[joint_ids, 0],
+            self.model.jnt_range[joint_ids, 1],
+        )
+        self.joint_position_target = qpos_target
 
     def set_joint_positions(self, joint_angles):
 
@@ -119,4 +163,3 @@ class LegWheelRobot:
         """重置机器人状态"""
         mujoco.mj_resetData(self.model, self.data)
         # self.motor_set_torque(0.0, 0.0)
-
