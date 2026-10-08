@@ -70,7 +70,6 @@ class BalanceMPC:
             if export_directory is None else Path(export_directory).resolve())
         self.export_directory.mkdir(parents=True, exist_ok=True)
         self.solver = self._init_solver()
-
     def _define_model(self):
         model = AcadosModel()
         model.name = "balance_mpc"
@@ -151,8 +150,13 @@ class BalanceMPC:
             self.solver.set(k, "p", parameter)
         self.solver.set(0, "lbx", current)
         self.solver.set(0, "ubx", current)
-        try:
-            self.last_status = self.solver.solve()
-        except Exception as e:
-            print(f"BalanceMPC 求解异常: {e}")
+        # acados 用返回状态码报告求解失败，通常不会抛 Python 异常。
+        self.last_status = self.solver.solve()
+        if self.last_status != 0:
+            print(f"[BalanceMPC] 求解失败，状态码 {self.last_status}, "
+                  f"当前状态 {current}, l={l}", flush=True)
+            # 清空失败的迭代值和 HPIPM 内存，再用当前状态初始化预测轨迹。
+            self.solver.reset(reset_qp_solver_mem=1)
+            return np.zeros(self.nu)
+
         return self.solver.get(0, "u")
