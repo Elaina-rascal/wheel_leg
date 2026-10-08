@@ -1,3 +1,6 @@
+"""PID 控制工具。"""
+
+
 class PID:
     def __init__(self, p,i,d):
         # self.kp, self.ki, self.kd = pid_params

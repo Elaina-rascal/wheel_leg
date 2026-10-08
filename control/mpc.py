@@ -34,7 +34,7 @@ class BalanceMPC:
         tau = mpc.update([pitch, pitch_rate, position, velocity], l=current_l)[0]
         wheel_torque = [tau / 2, tau / 2]
 
-    wheel_torque 的方向按 environment.py 已归一化的左右轮指令约定。
+    wheel_torque 的方向按 simulation/backend.py 的左右轮指令约定。
     """
 
     def __init__(self, mb, ma, J, r, dt=0.01, n_horizon=20,
@@ -74,11 +74,11 @@ class BalanceMPC:
     def _define_model(self):
         model = AcadosModel()
         model.name = "balance_mpc"
-        self.x_ = SX.sym("x", self.nx) #type: ignore
+        self.x_ = SX.sym("x", self.nx)  # type: ignore
         #分别为 theta, theta_dot, x, x_dot
-        self.u_ = SX.sym("u", self.nu) #type: ignore
-        self.p_ = SX.sym("p", self.np_p) #type: ignore
-        x_dot = SX.sym("x_dot", self.nx) #type: ignore
+        self.u_ = SX.sym("u", self.nu)  # type: ignore
+        self.p_ = SX.sym("p", self.np_p)  # type: ignore
+        x_dot = SX.sym("x_dot", self.nx)  # type: ignore
         theta, theta_dot = self.x_[0], self.x_[1]
         velocity, tau, l = self.x_[3], self.u_[0], self.p_[0]
 
@@ -153,8 +153,6 @@ class BalanceMPC:
         self.solver.set(0, "ubx", current)
         try:
             self.last_status = self.solver.solve()
-        # if self.last_status != 0:
-        #     raise RuntimeError(f"BalanceMPC 求解失败，acados status={self.last_status}")
         except Exception as e:
             print(f"BalanceMPC 求解异常: {e}")
         return self.solver.get(0, "u")

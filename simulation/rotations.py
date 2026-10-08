@@ -1,4 +1,3 @@
-import numpy as np
 import math
 
 def orientation2euler(quaternion):
