@@ -9,6 +9,7 @@ import mujoco.viewer
 import numpy as np
 
 from .rotations import orientation2euler
+from .visual import show_center_of_mass
 
 
 class LegWheelRobot:
@@ -34,12 +35,13 @@ class LegWheelRobot:
                           for name in self.joint_names]
         if base_id < 0 or min(self.joint_ids) < 0:
             raise ValueError('XML 缺少 base_free 或腿驱动关节')
-        self.base_qpos_adr = self.model.jnt_qposadr[base_id]
+        self.base_body_id = self.model.jnt_bodyid[base_id]
         self.base_dof_adr = self.model.jnt_dofadr[base_id]
         self.sensor_T = float(self.model.opt.timestep)
         self.reset()
         if render_mode == 'human':
             self.viewer = mujoco.viewer.launch_passive(self.model, self.data)
+            show_center_of_mass(self.viewer)
             print(f'MuJoCo 仿真进程 PID={os.getpid()}，按 ESC 退出', flush=True)
 
     def _wheel_positions(self):
@@ -57,9 +59,10 @@ class LegWheelRobot:
         self.last_wheel_positions = wheel_positions
         self.joint_pos = np.array([self.data.sensor(name).data[0]
                                    for name in self.joint_sensors]) + self.joint_offsets
-        # 保留车体自由关节的世界坐标位置和速度。
-        self.x = float(self.data.qpos[self.base_qpos_adr])
-        self.d_x = float(self.data.qvel[self.base_dof_adr])
+        # 自由关节的线速度是世界坐标；R.T 将它转换到上层车体局部坐标。
+        rotation = self.data.xmat[self.base_body_id].reshape(3, 3)
+        world_velocity = self.data.qvel[self.base_dof_adr:self.base_dof_adr + 3]
+        self.d_x = float((rotation.T @ world_velocity)[0])
 
     def set_control(self, leg_angles, wheel_torques):
         """将 VMC 角度映射为四关节位置目标，写入归一化的左右轮力矩。"""
@@ -74,10 +77,14 @@ class LegWheelRobot:
         """推进一个物理步，并按同样的周期读取传感器。"""
         mujoco.mj_step(self.model, self.data)  # type: ignore
         self.read_sensors()
+        # 每个物理步积分一次，重复读取传感器或同步 viewer 不累加位移。
+        # x 是沿车体瞬时局部 x 轴累计的位移，不是世界坐标位置。
+        self.x += self.d_x * self.sensor_T
 
     def reset(self):
         """恢复 XML 初始姿态，位置执行器目标对齐初始关节角。"""
         mujoco.mj_resetData(self.model, self.data)  # type: ignore
+        self.x = 0.0
         self.data.ctrl[:4] = self.model.qpos0[self.model.jnt_qposadr[self.joint_ids]]
         mujoco.mj_forward(self.model, self.data)  # type: ignore
         self.last_wheel_positions = self._wheel_positions()

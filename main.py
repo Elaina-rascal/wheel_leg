@@ -38,8 +38,13 @@ def main():
             sim_time = float(infos['sim_time'][0])
             if sim_time - last_log_time >= 1.0:
                 state = next(iterate(envs.observation_space, observations))
-                print(f'[control] t={sim_time:.3f}s state={state} '
-                      f'control={controller.last_info}', flush=True)
+                # %.3f 要逐个格式化数组元素，不能直接用于整个数组。
+                state_text = ', '.join(
+                    '%s=[%s]' % (name, ', '.join('%.3f' % value for value in values))
+                    for name, values in state.items()
+                )
+                print('[control] t=%.3fs state={%s} control=%s'
+                      % (sim_time, state_text, controller.last_info), flush=True)
                 last_log_time = sim_time
             if terminated[0] or truncated[0]:
                 break

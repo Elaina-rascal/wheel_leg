@@ -32,7 +32,7 @@ class LegWheelController:
         ik_error = None
         try:
             # 逆解默认使用刚计算的关节角作为分支种子，目标相对车身为 90 度。
-            targets = [leg.inverse_kinematics(self.leg_length_target, target_theta=0.0)
+            targets = [leg.inverse_kinematics(self.leg_length_target, target_theta=math.pi/2)
                        for leg in self.legs]
             self.last_leg_target = np.array(targets).ravel()
         except ValueError as exc:
