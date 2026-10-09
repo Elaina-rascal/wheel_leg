@@ -102,7 +102,11 @@ class LegWheelRobot:
     def render(self):
         """同步 UI，不推进物理时间。"""
         if self.viewer is not None and self.viewer.is_running():
+            previous_time = float(self.data.time)
             self.viewer.sync()
+            # 界面 Reset 在 sync 内生效；时间回退时同步清理后端状态。
+            if self.data.time < previous_time:
+                self.reset()
 
     def close(self):
         if self.viewer is not None:

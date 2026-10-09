@@ -9,7 +9,7 @@ from .mpc import BalanceMPC
 class LegWheelController:
     """仅处理状态快照和动作，不持有 MuJoCo 对象。"""
 
-    def __init__(self, control_period=0.004, leg_length_target=0.285):
+    def __init__(self, control_period=0.004, leg_length_target=0.25):
         self.control_period = control_period
         self.leg_length_target = leg_length_target
         self.left_leg=leg_VMC()
@@ -34,13 +34,14 @@ class LegWheelController:
             self.last_leg_target = np.array([right_angles, left_angles]).ravel()
 
         right_target = self.right_leg.inverse_kinematics(
-            self.leg_length_target, target_theta=math.pi / 2-0.14)
+            *(cartesian_to_polar(0.0314,self.leg_length_target)))
         left_target = self.left_leg.inverse_kinematics(
-            self.leg_length_target, target_theta=math.pi / 2+0.14)
+           *(cartesian_to_polar(-0.0314,self.leg_length_target)))
         self.last_leg_target = np.array([right_target, left_target]).ravel()
 
         leg_length = (self.left_leg.L0 + self.right_leg.L0) / 2
-        torque = float(self.balance.update(observation['balance'], leg_length)[0])
+        mass_center_height=leg_length-0.05 
+        torque = float(self.balance.update(observation['balance'], mass_center_height)[0])
         self.last_info = {'status': self.balance.last_status,
                           'leg_length': leg_length, 'total_wheel_torque': torque}
         # np.r_ 把四个腿目标角和两个轮力矩拼成长度为 6 的一维 action：
@@ -48,3 +49,8 @@ class LegWheelController:
         # 前四项单位 rad，采用 VMC 坐标；后两项单位 Nm。
         # MPC 的 torque 是左右轮总力矩，直行时均分，每个轮子给 torque / 2。
         return np.r_[self.last_leg_target, torque / 2, torque / 2]
+#直角坐标转换成极坐标
+def cartesian_to_polar(x, y):
+    r = np.sqrt(x**2 + y**2)
+    theta = np.arctan2(y, x)
+    return r, theta
