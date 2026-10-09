@@ -12,7 +12,8 @@ class LegWheelController:
     def __init__(self, control_period=0.004, leg_length_target=0.285):
         self.control_period = control_period
         self.leg_length_target = leg_length_target
-        self.legs = (leg_VMC(), leg_VMC())  # 右、左
+        self.left_leg=leg_VMC()
+        self.right_leg=leg_VMC()
         self.balance = BalanceMPC(
             mb=13.902, ma=0.9469, J=0.2, r=0.077,
             dt=control_period, n_horizon=100, l_nominal=leg_length_target,
@@ -23,24 +24,24 @@ class LegWheelController:
 
     def update(self, observation):
         joints = observation['joint_pos']
-        angles = ((joints[0] + math.pi, joints[1]),
-                  (joints[3] + math.pi, joints[2]))
-        for leg, (phi1, phi4) in zip(self.legs, angles):
-            leg.vmc_calc_pos(dt=self.control_period, phi1=phi1, phi4=phi4)
-        if self.last_leg_target is None:
-            self.last_leg_target = np.array(angles).ravel()
-        ik_error = None
-        try:
-            # 逆解默认使用刚计算的关节角作为分支种子，目标相对车身为 90 度。
-            targets = [leg.inverse_kinematics(self.leg_length_target, target_theta=math.pi/2)
-                       for leg in self.legs]
-            self.last_leg_target = np.array(targets).ravel()
-        except ValueError as exc:
-            ik_error = str(exc)
+        left_angles = np.array([joints[3] + math.pi, joints[2]])
+        right_angles = np.array([joints[0] + math.pi, joints[1]])
 
-        leg_length = sum(leg.L0 for leg in self.legs) / 2
+        self.left_leg.vmc_calc_pos(dt=self.control_period, phi1=left_angles[0], phi4=left_angles[1])
+        self.right_leg.vmc_calc_pos(dt=self.control_period, phi1=right_angles[0], phi4=right_angles[1])
+
+        if self.last_leg_target is None:
+            self.last_leg_target = np.array([right_angles, left_angles]).ravel()
+
+        right_target = self.right_leg.inverse_kinematics(
+            self.leg_length_target, target_theta=math.pi / 2-0.14)
+        left_target = self.left_leg.inverse_kinematics(
+            self.leg_length_target, target_theta=math.pi / 2+0.14)
+        self.last_leg_target = np.array([right_target, left_target]).ravel()
+
+        leg_length = (self.left_leg.L0 + self.right_leg.L0) / 2
         torque = float(self.balance.update(observation['balance'], leg_length)[0])
-        self.last_info = {'status': self.balance.last_status, 'ik_error': ik_error,
+        self.last_info = {'status': self.balance.last_status,
                           'leg_length': leg_length, 'total_wheel_torque': torque}
         # np.r_ 把四个腿目标角和两个轮力矩拼成长度为 6 的一维 action：
         # [phi1_right, phi4_right, phi1_left, phi4_left, tau_right, tau_left]。
