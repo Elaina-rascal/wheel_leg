@@ -102,7 +102,7 @@ class LegController(leg_VMC):
         # force_offset 是额外的轴向支撑力 N，roll 控制在两条腿上分别加减。
         F0=self.height_pid.calc(self.L0,target_vector[0])+g_force/2+force_offset
         Tp=self.theta_pid.calc(self.theta,target_vector[1])
-        Tp=20
+        # Tp=20
         # self.F0,self.Tp=self.cartesian_to_polar_force(0,-10)
         self.F0,self.Tp=F0,Tp
         # tau = J.T @ [F0, Tp]，返回 [phi1 力矩, phi4 力矩]。
