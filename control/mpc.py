@@ -104,22 +104,38 @@ class BalanceMPC:
 
     def _setup_cost_and_constraints(self, ocp):
         # 只做零状态平衡，直接惩罚状态和轮力矩，不设置目标轨迹。
+        # MPC 符号：model.x 是 x_k=[theta, theta_dot, position, velocity]，model.u 是 u_k=[tau]。
+        # 后缀 _0 对应初始节点 k=0，_e 对应终端 k=N；无后缀对应中间节点。
+        # cost_y_expr 是代价输出映射 h(x_k,u_k)，这里 h=[x_k;u_k]，共 5 维。
         ocp.model.cost_y_expr = vertcat(ocp.model.x, ocp.model.u)
+        # h_0(x_0,u_0)=[x_0;u_0]：初始节点使用相同输出映射。
         ocp.model.cost_y_expr_0 = ocp.model.cost_y_expr
+        # h_N(x_N)=x_N：终端节点只有四维状态，不含控制量 u_N。
         ocp.model.cost_y_expr_e = ocp.model.x
+        # cost_type 指定代价表达形式：NONLINEAR_LS 为 0.5*(h-yref)^T W (h-yref)。
+        # 下方三项分别设置中间节点、初始节点、终端节点的代价形式。
         ocp.cost.cost_type = "NONLINEAR_LS"
         ocp.cost.cost_type_0 = "NONLINEAR_LS"
         ocp.cost.cost_type_e = "NONLINEAR_LS"
+        # Q=diag(q_diag)，R=[r_weight]；W=block_diag(Q,R)，对应路径状态/输入权重，5×5。
         ocp.cost.W = np.diag(np.r_[self.q_diag, self.r_weight])
+        # W_0 是初始节点的权重矩阵，这里也取 block_diag(Q,R)。
         ocp.cost.W_0 = ocp.cost.W.copy()
+        # W_e 对应终端权重 P（也记作 Q_f），这里 P=terminal_scale*Q，4×4。
         ocp.cost.W_e = np.diag(self.terminal_scale * self.q_diag)
-        # acados 最小二乘代价所需的固定零向量，运行时不更新。
+        # yref 对应路径参考 [x_ref;u_ref]，此处四维状态参考和一维力矩参考全部为零。
         ocp.cost.yref = np.zeros(self.nx + self.nu)
+        # yref_0 对应初始节点的参考 [x_ref,0;u_ref,0]，与路径参考相同。
         ocp.cost.yref_0 = ocp.cost.yref.copy()
+        # yref_e 对应终端状态参考 x_ref,N，共 4 维，不含力矩参考。
         ocp.cost.yref_e = np.zeros(self.nx)
+        # idxbu 选择受上下界约束的 u 分量：[0] 表示只约束 u_k[0]=总轮力矩。
         ocp.constraints.idxbu = np.array([0], dtype=int)
+        # lbu/ubu 对应硬约束 u_min <= u_k <= u_max；各项与 idxbu 的顺序一一对应。
         ocp.constraints.lbu = np.array([-self.torque_limit])
         ocp.constraints.ubu = np.array([self.torque_limit])
+        # x0 对应初始状态等式约束 x_0=x_measured；创建求解器时先填零。
+        # 实际运行时由 update() 的 set(0,"lbx",current) 和 set(0,"ubx",current) 更新。
         ocp.constraints.x0 = np.zeros(self.nx)
 
     def _init_solver(self):

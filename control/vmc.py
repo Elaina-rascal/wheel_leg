@@ -152,10 +152,10 @@ class leg_VMC:
         self.d_phi0 = (self.phi0 - self.last_phi0) / dt
         self.d_alpha = -self.d_phi0
         
-        # theta 是虚拟腿方向相对车身局部竖直方向的偏角。
-        # 因此车身倾斜时，theta 不额外叠加 IMU pitch。
-        self.theta = math.pi/2.0 - self.phi0
-        self.d_theta = -self.d_phi0
+        # theta 从车身局部 x 正轴逆时针量取，垂直为 pi/2（90°）。
+        # 与 phi0 使用同一角度定义，不额外叠加 IMU pitch。
+        self.theta = self.phi0
+        self.d_theta = self.d_phi0
         
         # 更新last_phi0
         self.last_phi0 = self.phi0
@@ -169,6 +169,7 @@ class leg_VMC:
         self.dd_theta = (self.d_theta - self.last_d_theta)/dt
         self.last_d_theta = self.d_theta
 
+    # @staticmethod 让方法不自动接收 self；这段几何计算不依赖 VMC 实例属性。
     @staticmethod
     def _circle_intersections(c1, r1, c2, r2):
         """Return the two intersections of circles, or an empty list."""
@@ -215,15 +216,13 @@ class leg_VMC:
         phi0 = math.atan2(yc, xc - self.l5/2.0)
         return l0, phi0, phi2, phi3
 
-    def inverse_kinematics(self, target_L0, target_theta=0.0,
+    def inverse_kinematics(self, target_L0, target_theta=math.pi/2.0,
                            seed_phi1=None, seed_phi4=None):
-        """Solve the two actuated link angles for a desired virtual leg pose.
+        """在车身坐标系内，根据目标腿长和方向角求两个主动关节角。
 
-        The target length and angle are defined in the linkage/body frame.
-        ``target_theta=0`` makes the virtual leg perpendicular to the body
-        longitudinal axis (phi0 = 90 degrees), independent of body pitch.
-        Among equivalent linkage branches, the solution closest to the
-        supplied/current joint angles is selected.
+        target_theta 单位为 rad，从车身局部 x 正轴逆时针量取。
+        pi/2（90°）表示虚拟腿垂直于车身，0 表示沿局部 x 正轴。
+        目标跟随车身，不补偿机身俯仰；选择最接近当前/指定关节角的分支。
         """
         if target_L0 <= 0:
             raise ValueError("target_L0 must be positive")
@@ -232,9 +231,8 @@ class leg_VMC:
         if seed_phi4 is None:
             seed_phi4 = self.phi4
 
-        # Body-frame target: do not compensate body pitch. The leg follows
-        # the body, so target_theta=0 means phi0 is 90 degrees in this frame.
-        target_phi0 = math.pi/2.0 - target_theta
+        # 目标角与正运动学 phi0 一致，直接用于车身局部极坐标。
+        target_phi0 = target_theta
         target_c = (
             self.l5/2.0 + target_L0 * math.cos(target_phi0),
             target_L0 * math.sin(target_phi0),
@@ -256,6 +254,7 @@ class leg_VMC:
                 pose = self._forward_geometry(phi1, phi4)
                 if pose is None:
                     continue
+                # 多变量赋值按顺序解包返回值；_ 是普通变量名，表示这两项不需要使用。
                 l0, phi0, _, _ = pose
                 angle_error = math.atan2(
                     math.sin(phi0 - target_phi0),
@@ -273,6 +272,8 @@ class leg_VMC:
 
         if not candidates:
             raise ValueError("找不到符合闭环几何的逆解")
+        # min 比较元组时先比较第一项，相等才依次比较后面的项；
+        # candidates 的首项是综合误差，因此这里优先选误差最小的候选逆解。
         _, pose_error, phi1, phi4 = min(candidates)
         if pose_error > 1e-5:
             raise ValueError("目标点与闭环机构运动学不一致")

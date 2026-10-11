@@ -27,7 +27,9 @@ MPC 使用容器内已有的 CasADi 和 acados_template。
 按 ESC 关闭 viewer 或 Ctrl+C 退出。
 
 初始姿态在 MJCF/robot.xml 中定义。
-控制目标为相对车身 90 度、腿长 0.285 m，目标位置为 0。
+控制目标为相对车身 90 度、腿长 0.355 m，目标位置为 0。
+逆解 target_theta 与 VMC theta 从车身局部 x 正轴逆时针量取，单位 rad；
+垂直目标为 pi/2（90 度），与正运动学 phi0 一致。
 
 Gymnasium 接口在 simulation/gym_env.py 中定义：
     observation 为 Dict：balance=[theta, theta_dot, x, dx]，
