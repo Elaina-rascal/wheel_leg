@@ -47,12 +47,17 @@ MJCF/env.xml 是原来的无限棋盘平地；MJCF/env_terrain.xml 是土色坑�
 键盘步长、范围在 control/keyboard.py 修改；yaw_pid 增益在 controller.py 修改。
 容器已安装 pynput；其他环境需 pip install pynput，并连接桌面的 DISPLAY。
 速度由 MPC 跟踪（位移权重为零），转向由 PID 控制左右轮差动力矩。
+侧倾由 controller.py 的 roll_pid 控制，roll_target 默认 0 rad。
+P=150、I=0、D=10，输出为单腿轴向支撑力修正，限幅 ±50 N。
+左腿加 roll_force，右腿减 roll_force；正 roll（左侧抬高）时输出负值，右腿增加支撑力。
+D 项直接使用 IMU x 轴角速度作为阻尼；roll_pid、roll_force_limit 可在控制器初始化处调整。
 逆解 target_theta 与 VMC theta 从车身局部 x 正轴逆时针量取，单位 rad；
 垂直目标为 pi/2（90 度），与正运动学 phi0 一致。
 
 Gymnasium 接口在 simulation/gym_env.py 中定义：
     observation 为 Dict：balance=[theta, theta_dot, x, dx]，
-    joint_pos=四关节角，wheel_vel=右/左轮角速度，yaw_rate=[车体 z 轴角速度]。
+    joint_pos=四关节角，wheel_vel=右/左轮角速度，yaw_rate=[车体 z 轴角速度]，
+    roll=[侧倾角 rad，车体 x 轴角速度 rad/s]。
     action=[tau_phi1_right, tau_phi4_right, tau_phi1_left, tau_phi4_left, tau_right, tau_left]。
     六项全部为 Nm；腿 motor 限幅 ±20 Nm，轮执行器限幅 ±4 Nm。
     Gym 不做重复动作检查或 clip，执行器限位由后端和 XML 处理。

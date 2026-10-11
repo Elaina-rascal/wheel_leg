@@ -15,6 +15,10 @@ class LegWheelController:
         self.speed_target = 0.0       # m/s，正值前进；键盘在控制主进程更新。
         self.yaw_rate_target = 0.0    # rad/s，正值左转。
         self.yaw_pid = PID(p=0.5,i=0,d=0,dt=control_period)
+        self.roll_target = 0.0  # rad，0 表示车身保持水平。
+        # 输出为单腿支撑力修正量 N；P: N/rad，I: N/(rad*s)，D: N*s/rad。
+        self.roll_pid = PID(p=150, i=0, d=10, dt=control_period)
+        self.roll_force_limit = 50.0  # 每条腿的 roll 修正量限幅，单位 N。
         self.wheel_torque_limit = 4.0
         self.left_leg=LegController(dt=control_period)
         self.right_leg=LegController(dt=control_period)
@@ -36,8 +40,19 @@ class LegWheelController:
         # self.left_leg.vmc_calc_pos(dt=self.control_period, phi1=left_angles[0], phi4=left_angles[1])
         # self.right_leg.vmc_calc_pos(dt=self.control_period, phi1=right_angles[0], phi4=right_angles[1])
 
-        right_torque=self.right_leg.vmc_control(0.0314,self.leg_length_target,right_angles[0],right_angles[1])
-        left_torque = self.left_leg.vmc_control(-0.0314,self.leg_length_target,left_angles[0],left_angles[1])
+        roll = float(observation['roll'][0])
+        roll_rate = float(observation['roll'][1])
+        roll_force = self.roll_pid.calc(roll, self.roll_target, current_rate=roll_rate)
+        roll_force = float(np.clip(roll_force, -self.roll_force_limit, self.roll_force_limit))
+        # 车身 x 向前、y 向左、z 向上；正 roll 是左侧抬高、右侧降低。
+        # 正 roll 时 PID 输出负值，因此右腿加力、左腿减力，产生恢复侧倾的力矩。
+        # 两腿分别叠加相反的轴向力，不改变原有腿长和腿角度目标。
+        right_torque = self.right_leg.vmc_control(
+            0.0314, self.leg_length_target, right_angles[0], right_angles[1],
+            force_offset=-roll_force)
+        left_torque = self.left_leg.vmc_control(
+            -0.0314, self.leg_length_target, left_angles[0], left_angles[1],
+            force_offset=roll_force)
         self.last_leg_torque = np.array([right_torque[0], right_torque[1],
                                          left_torque[0], left_torque[1]])
 
@@ -56,7 +71,9 @@ class LegWheelController:
         self.last_info = {'status': self.balance.last_status,
                           'leg_length': leg_length, 'total_wheel_torque': torque,
                           'speed_target': self.speed_target, 'speed': float(observation['balance'][3]),
-                          'yaw_rate_target': self.yaw_rate_target, 'yaw_rate': yaw_rate}
+                          'yaw_rate_target': self.yaw_rate_target, 'yaw_rate': yaw_rate,
+                          'roll_target': self.roll_target, 'roll': roll,
+                          'roll_rate': roll_rate, 'roll_force': roll_force}
         # action = [tau_phi1_R, tau_phi4_R, tau_phi1_L, tau_phi4_L, tau_R, tau_L]。
         # 六项全部为 Nm；后端负责交换左腿两项以匹配 XML 顺序。
         # 总轮力矩均分，再叠加符号相反的转向力矩；正转向让右轮力矩更大。
@@ -76,15 +93,16 @@ class LegController(leg_VMC):
         self.vmc_calc_pos(dt=self.dt, phi1=phi1, phi4=phi4)
         target_vector=LegController.cartesian_to_polar(target_x,target_y)
         return self.inverse_kinematics(*target_vector)
-    def vmc_control(self,target_x,target_y,phi1,phi4,g_force=14.8*9.81):
+    def vmc_control(self,target_x,target_y,phi1,phi4,g_force=14.8*9.81,force_offset=0.0):
         # 正解得到当前腿长、方向；PID 输出虚拟力 F0 和虚拟力矩 Tp。
         self.vmc_calc_pos(dt=self.dt, phi1=phi1, phi4=phi4)
         target_vector=LegController.cartesian_to_polar(target_x,target_y)
         #F0是沿着轴向的力，Tp是绕着轴的力矩
         #将直角坐标力转化成极坐标力
-        F0=self.height_pid.calc(self.L0,target_vector[0])+g_force/2
+        # force_offset 是额外的轴向支撑力 N，roll 控制在两条腿上分别加减。
+        F0=self.height_pid.calc(self.L0,target_vector[0])+g_force/2+force_offset
         Tp=self.theta_pid.calc(self.theta,target_vector[1])
-        
+        Tp=20
         # self.F0,self.Tp=self.cartesian_to_polar_force(0,-10)
         self.F0,self.Tp=F0,Tp
         # tau = J.T @ [F0, Tp]，返回 [phi1 力矩, phi4 力矩]。
