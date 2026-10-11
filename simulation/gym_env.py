@@ -27,6 +27,7 @@ class WheelLegEnv(gym.Env):
             'balance': spaces.Box(-np.inf, np.inf, shape=(4,), dtype=np.float64),
             'joint_pos': spaces.Box(-np.inf, np.inf, shape=(4,), dtype=np.float64),
             'wheel_vel': spaces.Box(-np.inf, np.inf, shape=(2,), dtype=np.float64),
+            'yaw_rate': spaces.Box(-np.inf, np.inf, shape=(1,), dtype=np.float64),
         })
         # 前四项为 VMC 关节力矩，后两项为单轮力矩，全部为 Nm。
         # low/high 各有 6 项，Box 从它们推断动作 shape=(6,)，逐项定义上下界。
@@ -73,7 +74,9 @@ class WheelLegEnv(gym.Env):
         robot = self.robot
         # .copy() 保存当前数值快照，避免后续仿真更新影响已经返回的数组。
         return {'balance': np.array([robot.euler[1], robot.gyro[1], robot.x, robot.d_x]),  # type: ignore
-                'joint_pos': robot.joint_pos.copy(), 'wheel_vel': robot.wheel_vel.copy()}  # type: ignore
+                'joint_pos': robot.joint_pos.copy(), 'wheel_vel': robot.wheel_vel.copy(),  # type: ignore
+                # 车体 z 轴角速度，rad/s；直立时正值左转。
+                'yaw_rate': np.array([robot.gyro[2]])}  # type: ignore
 
     def _info(self):
         # {**原字典, '新键': 值} 新建合并字典；同名键以后写的值为准。

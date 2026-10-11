@@ -19,8 +19,10 @@ def make_env():
 def main():
     # 子进程只导入仿真模块，MPC 及 acados 在控制主进程加载。
     from control.controller import LegWheelController
+    from control.keyboard import KeyboardInput
 
     controller = LegWheelController(control_period=CONTROL_PERIOD)
+    keyboard_input = KeyboardInput(controller)
     # AsyncVectorEnv 接收“创建环境的函数”列表，不是已创建的环境实例。
     # 这里只放一个 make_env，也有一层批量维度：balance 从 (4,) 变为 (1,4)。
     # spawn 新建独立 Python 进程；worker 指定子进程如何收发控制消息。
@@ -29,6 +31,8 @@ def main():
                           autoreset_mode=AutoresetMode.DISABLED)
     try:
         observations, infos = envs.reset()
+        keyboard_input.start()
+        previous_sim_time = float(infos['sim_time'][0])
         print(f"控制进程 PID={os.getpid()}，"
               f"仿真进程 PID={int(infos['simulation_pid'][0])}", flush=True)
         # single_action_space 是单个环境的动作描述 (6,)；
@@ -47,6 +51,10 @@ def main():
             # infos 也按环境批量组织，因此后面用 infos['sim_time'][0] 取第一个环境。
             observations, _, terminated, truncated, infos = envs.step(actions)
             sim_time = float(infos['sim_time'][0])
+            # viewer Reset 造成时间回退时，清零主进程的键盘目标。
+            if sim_time < previous_sim_time:
+                keyboard_input.reset()
+            previous_sim_time = sim_time
             if sim_time - last_log_time >= 1.0:
                 state = next(iterate(envs.observation_space, observations))
                 # %.3f 要逐个格式化数组元素，不能直接用于整个数组。
@@ -66,6 +74,7 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
+        keyboard_input.stop()
         envs.close(timeout=5)
 
 

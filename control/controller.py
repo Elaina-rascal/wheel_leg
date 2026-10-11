@@ -12,12 +12,18 @@ class LegWheelController:
     def __init__(self, control_period=0.004, leg_length_target=0.25):
         self.control_period = control_period
         self.leg_length_target = leg_length_target
+        self.speed_target = 0.0       # m/s，正值前进；键盘在控制主进程更新。
+        self.yaw_rate_target = 0.0    # rad/s，正值左转。
+        self.yaw_pid = PID(p=0.5,i=0,d=0,dt=control_period)
+        self.wheel_torque_limit = 4.0
         self.left_leg=LegController(dt=control_period)
         self.right_leg=LegController(dt=control_period)
         self.balance = BalanceMPC(
             mb=13.902, ma=0.9469, J=0.2, r=0.077,
             dt=control_period, n_horizon=100, l_nominal=leg_length_target,
             torque_limit=8,
+            # 速度控制将位移权重置零，避免速度目标与回原点冲突。
+            q_diag=[50.0, 20.0, 0.0, 5.0],
         )
         self.last_leg_torque = None
         self.last_info = {}
@@ -38,13 +44,23 @@ class LegWheelController:
         leg_length = (self.left_leg.L0 + self.right_leg.L0) / 2
         mass_center_height=leg_length-0.05 
         # MPC update 返回 shape=(1,) 的数组，[0] 取总轮力矩，float 转为标量。
-        torque = float(self.balance.update(observation['balance'], mass_center_height)[0])
+        torque = float(self.balance.update(observation['balance'], mass_center_height,
+                                          velocity_target=self.speed_target)[0])
+        yaw_rate = float(observation['yaw_rate'][0])
+        yaw_torque = self.yaw_pid.calc(yaw_rate,self.yaw_rate_target)
+        # 平衡力矩优先；剩余单轮力矩余量用于左右差动转向。
+        yaw_limit = max(0.0,self.wheel_torque_limit - abs(torque) / 2)
+        yaw_torque = float(np.clip(yaw_torque,-yaw_limit,yaw_limit))
+        right_wheel_torque = torque / 2 + yaw_torque
+        left_wheel_torque = torque / 2 - yaw_torque
         self.last_info = {'status': self.balance.last_status,
-                          'leg_length': leg_length, 'total_wheel_torque': torque}
+                          'leg_length': leg_length, 'total_wheel_torque': torque,
+                          'speed_target': self.speed_target, 'speed': float(observation['balance'][3]),
+                          'yaw_rate_target': self.yaw_rate_target, 'yaw_rate': yaw_rate}
         # action = [tau_phi1_R, tau_phi4_R, tau_phi1_L, tau_phi4_L, tau_R, tau_L]。
         # 六项全部为 Nm；后端负责交换左腿两项以匹配 XML 顺序。
-        # MPC 的 torque 是左右轮总力矩，直行时均分，每个轮子给 torque / 2。
-        return np.r_[self.last_leg_torque, torque / 2, torque / 2]
+        # 总轮力矩均分，再叠加符号相反的转向力矩；正转向让右轮力矩更大。
+        return np.r_[self.last_leg_torque, right_wheel_torque, left_wheel_torque]
 #直角坐标转换成极坐标
 
 class LegController(leg_VMC):

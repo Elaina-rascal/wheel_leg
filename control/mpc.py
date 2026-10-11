@@ -3,7 +3,7 @@
 状态: [theta, theta_dot, position, velocity]，theta=0 表示直立，前倾为正。
 输入: [tau]，左右轮总驱动力矩，正值使车向前运动，单位 Nm。
 参数: [l]。
-固定平衡目标: [0, 0, 0, 0]，position 应相对希望停留的位置测量。
+平衡参考: [0, 0, 0, velocity_target]；速度模式将 position 权重设为零。
 
 l 是轮轴到等效摆体质心的距离，不能直接把腿长当成质心距离。
 每次 update 读取当前 l，在该次整个预测时域内保持相同值。
@@ -103,7 +103,7 @@ class BalanceMPC:
         return model
 
     def _setup_cost_and_constraints(self, ocp):
-        # 只做零状态平衡，直接惩罚状态和轮力矩，不设置目标轨迹。
+        # 建立状态、输入的最小二乘代价；运行时 update() 设置速度参考。
         # MPC 符号：model.x 是 x_k=[theta, theta_dot, position, velocity]，model.u 是 u_k=[tau]。
         # 后缀 _0 对应初始节点 k=0，_e 对应终端 k=N；无后缀对应中间节点。
         # cost_y_expr 是代价输出映射 h(x_k,u_k)，这里 h=[x_k;u_k]，共 5 维。
@@ -123,7 +123,7 @@ class BalanceMPC:
         ocp.cost.W_0 = ocp.cost.W.copy()
         # W_e 对应终端权重 P（也记作 Q_f），这里 P=terminal_scale*Q，4×4。
         ocp.cost.W_e = np.diag(self.terminal_scale * self.q_diag)
-        # yref 对应路径参考 [x_ref;u_ref]，此处四维状态参考和一维力矩参考全部为零。
+        # yref 对应路径参考 [x_ref;u_ref]，初始化为零，运行时更新速度分量。
         ocp.cost.yref = np.zeros(self.nx + self.nu)
         # yref_0 对应初始节点的参考 [x_ref,0;u_ref,0]，与路径参考相同。
         ocp.cost.yref_0 = ocp.cost.yref.copy()
@@ -158,10 +158,16 @@ class BalanceMPC:
             ocp, json_file=str(self.export_directory / "balance_mpc_ocp.json"),
             verbose=False)
 
-    def update(self, x_current, l: float):
-        """使用当前正长度 l 预测，返回总轮力矩，shape=(1,)。"""
+    def update(self, x_current, l: float, velocity_target=0.0):
+        """使用当前 l 和目标速度 m/s 预测，返回总轮力矩，shape=(1,)。"""
         current = np.asarray(x_current, dtype=float).reshape(self.nx)
         parameter = np.array([l], dtype=float)
+        # 路径参考 [theta,theta_dot,position,velocity,tau]；速度模式的位移权重为零。
+        reference = np.array([0.0,0.0,0.0,velocity_target,0.0], dtype=float)
+        for k in range(self.n_horizon):
+            self.solver.cost_set(k, "yref", reference)
+        # 终端参考只含四项状态，不含输入；初始参考由上面的 k=0 更新。
+        self.solver.cost_set(self.n_horizon, "yref", reference[:self.nx])
         for k in range(self.n_horizon + 1):
             self.solver.set(k, "p", parameter)
         self.solver.set(0, "lbx", current)

@@ -19,6 +19,7 @@ MPC 使用容器内已有的 CasADi 和 acados_template。
     control/mpc.py             平衡模型与 acados 求解器
     control/vmc.py             机构运动学和 VMC
     control/pid.py             PID 工具
+    control/keyboard.py        控制主进程键盘监听，直接修改控制器速度目标
 
 控制周期在 main.py 中设置，当前为 4 ms。
 每次 env.step 保持动作并执行 4 个 1 ms 物理步。
@@ -29,12 +30,19 @@ MPC 使用容器内已有的 CasADi 和 acados_template。
 初始姿态在 MJCF/robot.xml 中定义，机身 z=0.2545 m，直接接触地面。
 MJCF/env.xml 的 suspend_base 默认关闭，active=true 可固定机身。
 腿部目标在 controller.py 两侧 vmc_control 调用处修改。
+键盘由控制主进程的 pynput 监听，目标直接写入控制器，不经过 MuJoCo 回调或 info。
+    ↑/↓：每次增加/减少 0.1 m/s，范围 ±1 m/s，正值前进。
+    ←/→：每次增加/减少 0.2 rad/s，范围 ±2 rad/s，正值左转。
+    空格：两个目标清零；松开后保持。仿真时间回退时也清零键盘目标。
+键盘步长、范围在 control/keyboard.py 修改；yaw_pid 增益在 controller.py 修改。
+容器已安装 pynput；其他环境需 pip install pynput，并连接桌面的 DISPLAY。
+速度由 MPC 跟踪（位移权重为零），转向由 PID 控制左右轮差动力矩。
 逆解 target_theta 与 VMC theta 从车身局部 x 正轴逆时针量取，单位 rad；
 垂直目标为 pi/2（90 度），与正运动学 phi0 一致。
 
 Gymnasium 接口在 simulation/gym_env.py 中定义：
     observation 为 Dict：balance=[theta, theta_dot, x, dx]，
-    joint_pos=四关节角，wheel_vel=右/左轮角速度。
+    joint_pos=四关节角，wheel_vel=右/左轮角速度，yaw_rate=[车体 z 轴角速度]。
     action=[tau_phi1_right, tau_phi4_right, tau_phi1_left, tau_phi4_left, tau_right, tau_left]。
     六项全部为 Nm；腿 motor 限幅 ±20 Nm，轮执行器限幅 ±4 Nm。
     Gym 不做重复动作检查或 clip，执行器限位由后端和 XML 处理。
