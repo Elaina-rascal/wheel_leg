@@ -1,7 +1,7 @@
 import math
 
 import numpy as np
-
+from .pid import PID
 from .vmc import leg_VMC
 from .mpc import BalanceMPC
 
@@ -12,8 +12,8 @@ class LegWheelController:
     def __init__(self, control_period=0.004, leg_length_target=0.25):
         self.control_period = control_period
         self.leg_length_target = leg_length_target
-        self.left_leg=leg_VMC()
-        self.right_leg=leg_VMC()
+        self.left_leg=LegController()
+        self.right_leg=LegController()
         self.balance = BalanceMPC(
             mb=13.902, ma=0.9469, J=0.2, r=0.077,
             dt=control_period, n_horizon=100, l_nominal=leg_length_target,
@@ -27,8 +27,8 @@ class LegWheelController:
         left_angles = np.array([joints[3] + math.pi, joints[2]])
         right_angles = np.array([joints[0] + math.pi, joints[1]])
 
-        self.left_leg.vmc_calc_pos(dt=self.control_period, phi1=left_angles[0], phi4=left_angles[1])
-        self.right_leg.vmc_calc_pos(dt=self.control_period, phi1=right_angles[0], phi4=right_angles[1])
+        # self.left_leg.vmc_calc_pos(dt=self.control_period, phi1=left_angles[0], phi4=left_angles[1])
+        # self.right_leg.vmc_calc_pos(dt=self.control_period, phi1=right_angles[0], phi4=right_angles[1])
 
         if self.last_leg_target is None:
             # 两个长度为 2 的数组组成 (2,2) 数组；ravel() 按默认行顺序展平成 (4,)。
@@ -38,10 +38,8 @@ class LegWheelController:
         # 调用处 *可迭代对象 将元素展开为位置参数；下面等价于
         # polar = cartesian_to_polar(...); inverse_kinematics(polar[0], polar[1])。
         # 两项分别对应逆解函数的 target_L0（长度）和 target_theta（角度）。
-        right_target = self.right_leg.inverse_kinematics(
-            *(cartesian_to_polar(0.0314,self.leg_length_target)))
-        left_target = self.left_leg.inverse_kinematics(
-           *(cartesian_to_polar(-0.0314,self.leg_length_target)))
+        right_target=self.right_leg.kinematic_control(0.0314,self.leg_length_target,right_angles[0],right_angles[1])
+        left_target = self.left_leg.kinematic_control(-0.0314,self.leg_length_target,left_angles[0],left_angles[1])
         self.last_leg_target = np.array([right_target, left_target]).ravel()
 
         leg_length = (self.left_leg.L0 + self.right_leg.L0) / 2
@@ -56,7 +54,24 @@ class LegWheelController:
         # MPC 的 torque 是左右轮总力矩，直行时均分，每个轮子给 torque / 2。
         return np.r_[self.last_leg_target, torque / 2, torque / 2]
 #直角坐标转换成极坐标
-def cartesian_to_polar(x, y):
-    r = np.sqrt(x**2 + y**2)
-    theta = np.arctan2(y, x)
-    return r, theta
+
+class LegController(leg_VMC):
+    '''腿部控制器'''
+    def __init__(self, dt=0.004):
+        #先调用父类初始化
+        super().__init__()
+        self.height_pid = PID(p=10,i=0.1,d=0.01)
+        self.theta_pid = PID(p=10,i=0.1,d=0.01)
+        self.dt=dt
+    def kinematic_control(self,target_x,target_y,phi1,phi4):
+        # 先运动学正解算出当前的腿长和腿角度
+        self.vmc_calc_pos(dt=self.dt, phi1=phi1, phi4=phi4)
+        target_vector=LegController.cartesian_to_polar(target_x,target_y)
+        return self.inverse_kinematics(*target_vector)
+    
+    @staticmethod
+    def cartesian_to_polar(x, y):
+        r = np.sqrt(x**2 + y**2)
+        theta = np.arctan2(y, x)
+        return r, theta
+    
