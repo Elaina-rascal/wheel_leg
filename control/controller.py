@@ -31,8 +31,13 @@ class LegWheelController:
         self.right_leg.vmc_calc_pos(dt=self.control_period, phi1=right_angles[0], phi4=right_angles[1])
 
         if self.last_leg_target is None:
+            # 两个长度为 2 的数组组成 (2,2) 数组；ravel() 按默认行顺序展平成 (4,)。
+            # 这里顺序为右腿 phi1、phi4，再左腿 phi1、phi4，与 Gym 动作前四项一致。
             self.last_leg_target = np.array([right_angles, left_angles]).ravel()
 
+        # 调用处 *可迭代对象 将元素展开为位置参数；下面等价于
+        # polar = cartesian_to_polar(...); inverse_kinematics(polar[0], polar[1])。
+        # 两项分别对应逆解函数的 target_L0（长度）和 target_theta（角度）。
         right_target = self.right_leg.inverse_kinematics(
             *(cartesian_to_polar(0.0314,self.leg_length_target)))
         left_target = self.left_leg.inverse_kinematics(
@@ -41,6 +46,7 @@ class LegWheelController:
 
         leg_length = (self.left_leg.L0 + self.right_leg.L0) / 2
         mass_center_height=leg_length-0.05 
+        # MPC update 返回 shape=(1,) 的数组，[0] 取总轮力矩，float 转为标量。
         torque = float(self.balance.update(observation['balance'], mass_center_height)[0])
         self.last_info = {'status': self.balance.last_status,
                           'leg_length': leg_length, 'total_wheel_torque': torque}

@@ -169,6 +169,7 @@ class leg_VMC:
         self.dd_theta = (self.d_theta - self.last_d_theta)/dt
         self.last_d_theta = self.d_theta
 
+    # @staticmethod 让方法不自动接收 self；这段几何计算不依赖 VMC 实例属性。
     @staticmethod
     def _circle_intersections(c1, r1, c2, r2):
         """Return the two intersections of circles, or an empty list."""
@@ -253,6 +254,7 @@ class leg_VMC:
                 pose = self._forward_geometry(phi1, phi4)
                 if pose is None:
                     continue
+                # 多变量赋值按顺序解包返回值；_ 是普通变量名，表示这两项不需要使用。
                 l0, phi0, _, _ = pose
                 angle_error = math.atan2(
                     math.sin(phi0 - target_phi0),
@@ -270,6 +272,8 @@ class leg_VMC:
 
         if not candidates:
             raise ValueError("找不到符合闭环几何的逆解")
+        # min 比较元组时先比较第一项，相等才依次比较后面的项；
+        # candidates 的首项是综合误差，因此这里优先选误差最小的候选逆解。
         _, pose_error, phi1, phi4 = min(candidates)
         if pose_error > 1e-5:
             raise ValueError("目标点与闭环机构运动学不一致")
