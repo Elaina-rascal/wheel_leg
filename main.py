@@ -1,6 +1,9 @@
 """双进程启动入口：主进程控制，子进程仿真。"""
 
+import argparse
+from functools import partial
 import os
+from pathlib import Path
 import time
 
 from gymnasium.vector import AsyncVectorEnv, AutoresetMode
@@ -12,11 +15,19 @@ from simulation.gym_env import WheelLegEnv, viewer_worker
 CONTROL_PERIOD = 0.004
 
 
-def make_env():
-    return WheelLegEnv(render_mode='human', control_period=CONTROL_PERIOD)
+def make_env(scene='terrain'):
+    scene_files = {'flat': 'env.xml', 'terrain': 'env_terrain.xml'}
+    model_path = Path(__file__).resolve().parent / 'MJCF' / scene_files[scene]
+    return WheelLegEnv(render_mode='human', control_period=CONTROL_PERIOD,
+                       model_path=str(model_path))
 
 
 def main():
+    parser = argparse.ArgumentParser(description='轮腿机器人仿真')
+    parser.add_argument('--scene', choices=['flat', 'terrain'], default='terrain',
+                        help='flat：原来的棋盘平地；terrain：坑洼地形（默认）')
+    args = parser.parse_args()
+    print(f"场景：{'真实地形' if args.scene == 'terrain' else '棋盘平地'}", flush=True)
     # 子进程只导入仿真模块，MPC 及 acados 在控制主进程加载。
     from control.controller import LegWheelController
     from control.keyboard import KeyboardInput
@@ -27,7 +38,8 @@ def main():
     # 这里只放一个 make_env，也有一层批量维度：balance 从 (4,) 变为 (1,4)。
     # spawn 新建独立 Python 进程；worker 指定子进程如何收发控制消息。
     # DISABLED 表示环境结束后不自动 reset，由上层决定下一步如何处理。
-    envs = AsyncVectorEnv([make_env], context='spawn', worker=viewer_worker,
+    # partial 预先绑定 scene，生成无参数的环境创建函数；场景参数也会传入子进程。
+    envs = AsyncVectorEnv([partial(make_env, scene=args.scene)], context='spawn', worker=viewer_worker,
                           autoreset_mode=AutoresetMode.DISABLED)
     try:
         observations, infos = envs.reset()

@@ -1,0 +1,15 @@
+<mujoco>
+    <!-- 由 generate_terrain.py 生成；请在该脚本中调整路面参数。 -->
+    <asset>
+        <!-- size: x/y 半尺寸、高度范围、最低点以下的实体厚度。 -->
+        <hfield name="rough_terrain" file="terrain.bin"
+                size="20.0 15.0 0.311729211 0.1"/>
+        <!-- 土色哑光地面；不用棋盘纹理，通过地形起伏和光照显示坑包。 -->
+        <material name="terrain_material" rgba="0.46 0.37 0.25 1"
+                  reflectance="0" specular="0" shininess="0"/>
+    </asset>
+    <worldbody>
+        <geom name="floor" type="hfield" hfield="rough_terrain"
+              pos="8.0 0 -0.132412351" material="terrain_material" condim="3"/>
+    </worldbody>
+</mujoco>

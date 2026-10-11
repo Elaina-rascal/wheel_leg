@@ -5,9 +5,11 @@ MPC 使用容器内已有的 CasADi 和 acados_template。
 安装 Gymnasium：pip install gymnasium==1.4.0
 
 运行（项目根目录）：
-    python main.py
+    python main.py --scene terrain   真实地形（不指定 --scene 时也是这个场景）
+    python main.py --scene flat      原来的棋盘平地
 宿主机启动容器内仿真：
-    docker exec -it -w /home/Elaina/ros2_ws wheel_leg python main.py
+    docker exec -it -w /home/Elaina/ros2_ws wheel_leg python main.py --scene terrain
+    docker exec -it -w /home/Elaina/ros2_ws wheel_leg python main.py --scene flat
 
 文件职责：
     main.py                    双进程启动、控制循环、日志和实时限速
@@ -28,7 +30,15 @@ MPC 使用容器内已有的 CasADi 和 acados_template。
 按 ESC 关闭 viewer 或 Ctrl+C 退出。
 
 初始姿态在 MJCF/robot.xml 中定义，机身 z=0.2545 m，直接接触地面。
-MJCF/env.xml 的 suspend_base 默认关闭，active=true 可固定机身。
+MJCF/scene.xml 共用机器人和物理设置，suspend_base 默认关闭，active=true 可固定机身。
+MJCF/env.xml 是原来的无限棋盘平地；MJCF/env_terrain.xml 是土色坑洼地形，不使用棋盘纹理。
+真实地形为 40×30 m 的可碰撞高度场，范围 x=[-12, 28] m、y=[-15, 15] m；超出范围没有地面。
+出生点半径 0.55 m 内保持 z=0，前方有 7.5~12 cm 深的坑、10~18 cm 高的土包和两条车辙。
+其他区域随机分布 120 处坑包，重叠区域的起伏可能更大；固定种子保证场景可重复。
+修改 MJCF/generate_terrain.py 中 TERRAIN 和 FEATURES 后，在项目根目录运行：
+    python MJCF/generate_terrain.py
+脚本同时更新 terrain.bin 和 terrain.xml，随后重启仿真加载；不需要额外安装包。
+高度场方法参考：https://mujoco.readthedocs.io/en/3.7.0/XMLreference.html#asset-hfield
 腿部目标在 controller.py 两侧 vmc_control 调用处修改。
 键盘由控制主进程的 pynput 监听，目标直接写入控制器，不经过 MuJoCo 回调或 info。
     ↑/↓：每次增加/减少 0.1 m/s，范围 ±1 m/s，正值前进。

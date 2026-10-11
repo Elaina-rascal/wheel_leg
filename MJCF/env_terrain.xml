@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<mujoco model="wheel_leg_terrain">
+    <include file="scene.xml"/>
+    <!-- 仅使用高度场；z=0 的 plane 会填平坑的碰撞。 -->
+    <include file="terrain.xml"/>
+</mujoco>
