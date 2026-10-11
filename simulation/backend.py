@@ -1,6 +1,5 @@
 """MuJoCo 后端：模型加载、传感器、执行器和 viewer。"""
 
-import math
 import os
 from pathlib import Path
 
@@ -70,15 +69,17 @@ class LegWheelRobot:
         # .T 为矩阵转置，@ 为矩阵乘法；这里是 3×3 矩阵乘长度为 3 的向量。
         self.d_x = float((rotation.T @ world_velocity)[0])
 
-    def set_control(self, leg_angles, wheel_torques):
-        """将 VMC 角度映射为四关节位置目标，写入归一化的左右轮力矩。"""
-        phi1_right, phi4_right, phi1_left, phi4_left = leg_angles
-        targets = np.array([phi1_right - math.pi - 0.027, phi4_right - 1.3,
-                            phi4_left - 0.003, phi1_left - math.pi + 1.3])
-        limits = self.model.jnt_range[self.joint_ids]
-        # 二维切片 [:,0]/[:,1] 取所有关节的下界/上界；np.clip 逐项限制目标角。
-        self.data.ctrl[:4] = np.clip(targets, limits[:, 0], limits[:, 1])
-        self.data.ctrl[4:6] = wheel_torques  # 左轮 gainprm=-1 在 XML 中归一化。
+    def set_control(self, leg_torques, wheel_torques):
+        """输入均为 Nm；将各腿 phi1/phi4 力矩映射到 XML 执行器。"""
+        # phi = q + 常数，因此 dphi/dq = 1，力矩不减角度偏置。
+        # XML 顺序 [jAB, jAG, jIJ, jIO]，左腿两个力矩需要交换位置。
+        controls = np.array([
+            leg_torques[0], leg_torques[1], leg_torques[3], leg_torques[2],
+            wheel_torques[0], wheel_torques[1],
+        ])
+        limits = self.model.actuator_ctrlrange
+        self.data.ctrl[:] = np.clip(controls, limits[:, 0], limits[:, 1])
+        # 左轮 gainprm=-1 在 XML 中归一化前进方向。
 
     def step(self):
         """推进一个物理步，并按同样的周期读取传感器。"""
@@ -89,12 +90,10 @@ class LegWheelRobot:
         self.x += self.d_x * self.sensor_T
 
     def reset(self):
-        """恢复 XML 初始姿态，位置执行器目标对齐初始关节角。"""
+        """恢复 XML 初始姿态，所有电机力矩清零。"""
         mujoco.mj_resetData(self.model, self.data)  # type: ignore
         self.x = 0.0
-        # jnt_qposadr 把“关节 ID”映射到 qpos 中的起始索引；自由关节占多项，
-        # 因而关节 ID 不能直接用作 qpos 索引。列表索引一次取出四个驱动关节的位置。
-        self.data.ctrl[:4] = self.model.qpos0[self.model.jnt_qposadr[self.joint_ids]]
+        self.data.ctrl[:] = 0.0
         mujoco.mj_forward(self.model, self.data)  # type: ignore
         self.last_wheel_positions = self._wheel_positions()
         self.read_sensors()

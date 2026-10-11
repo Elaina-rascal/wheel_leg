@@ -28,14 +28,12 @@ class WheelLegEnv(gym.Env):
             'joint_pos': spaces.Box(-np.inf, np.inf, shape=(4,), dtype=np.float64),
             'wheel_vel': spaces.Box(-np.inf, np.inf, shape=(2,), dtype=np.float64),
         })
-        # 前四项为 VMC 角度，后两项为单轮力矩；只声明范围，不在此处 clip。
+        # 前四项为 VMC 关节力矩，后两项为单轮力矩，全部为 Nm。
         # low/high 各有 6 项，Box 从它们推断动作 shape=(6,)，逐项定义上下界。
-        # 这些界限使用控制器的 VMC 角度坐标，执行时由后端转换到 XML 关节坐标。
+        # 后端将左右腿顺序映射到 XML，并按执行器 ctrlrange 限幅。
         self.action_space = spaces.Box(
-            low=np.array([np.pi - 1.57 + .027, -1.57 + 1.3,
-                          np.pi - .3 - 1.3, -.5 + .003, -4., -4.]),
-            high=np.array([np.pi + .5 + .027, .3 + 1.3,
-                           np.pi + 1.57 - 1.3, 1.57 + .003, 4., 4.]),
+            low=np.array([-20., -20., -20., -20., -4., -4.]),
+            high=np.array([20., 20., 20., 20., 4., 4.]),
             dtype=np.float64,
         )
 
@@ -62,7 +60,7 @@ class WheelLegEnv(gym.Env):
 
     def step(self, action):
         if self.robot.is_running():  # type: ignore
-            # action = [phi1_R, phi4_R, phi1_L, phi4_L, tau_R, tau_L]。
+            # action = [tau_phi1_R, tau_phi4_R, tau_phi1_L, tau_phi4_L, tau_R, tau_L]。
             self.robot.set_control(action[:4], action[4:])  # type: ignore
             for _ in range(self.frame_skip):  # type: ignore
                 self.robot.step()  # type: ignore

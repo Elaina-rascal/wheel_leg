@@ -14,7 +14,7 @@ class PID:
         error = target - current
         
         p_term = self.kp * error
-        self.integral += error
+        self.integral += error * self.dt
         i_term = self.ki * self.integral
         d_term = self.kd * (error - self.prev_error)/self.dt
         self.prev_error = error

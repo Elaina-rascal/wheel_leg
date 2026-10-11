@@ -12,14 +12,14 @@ class LegWheelController:
     def __init__(self, control_period=0.004, leg_length_target=0.25):
         self.control_period = control_period
         self.leg_length_target = leg_length_target
-        self.left_leg=LegController()
-        self.right_leg=LegController()
+        self.left_leg=LegController(dt=control_period)
+        self.right_leg=LegController(dt=control_period)
         self.balance = BalanceMPC(
             mb=13.902, ma=0.9469, J=0.2, r=0.077,
             dt=control_period, n_horizon=100, l_nominal=leg_length_target,
             torque_limit=8,
         )
-        self.last_leg_target = None
+        self.last_leg_torque = None
         self.last_info = {}
 
     def update(self, observation):
@@ -30,17 +30,10 @@ class LegWheelController:
         # self.left_leg.vmc_calc_pos(dt=self.control_period, phi1=left_angles[0], phi4=left_angles[1])
         # self.right_leg.vmc_calc_pos(dt=self.control_period, phi1=right_angles[0], phi4=right_angles[1])
 
-        if self.last_leg_target is None:
-            # 两个长度为 2 的数组组成 (2,2) 数组；ravel() 按默认行顺序展平成 (4,)。
-            # 这里顺序为右腿 phi1、phi4，再左腿 phi1、phi4，与 Gym 动作前四项一致。
-            self.last_leg_target = np.array([right_angles, left_angles]).ravel()
-
-        # 调用处 *可迭代对象 将元素展开为位置参数；下面等价于
-        # polar = cartesian_to_polar(...); inverse_kinematics(polar[0], polar[1])。
-        # 两项分别对应逆解函数的 target_L0（长度）和 target_theta（角度）。
-        right_target=self.right_leg.kinematic_control(0.0314,self.leg_length_target,right_angles[0],right_angles[1])
-        left_target = self.left_leg.kinematic_control(-0.0314,self.leg_length_target,left_angles[0],left_angles[1])
-        self.last_leg_target = np.array([right_target, left_target]).ravel()
+        right_torque=self.right_leg.vmc_control(0.0314,self.leg_length_target,right_angles[0],right_angles[1])
+        left_torque = self.left_leg.vmc_control(-0.0314,self.leg_length_target,left_angles[0],left_angles[1])
+        self.last_leg_torque = np.array([right_torque[0], right_torque[1],
+                                         left_torque[0], left_torque[1]])
 
         leg_length = (self.left_leg.L0 + self.right_leg.L0) / 2
         mass_center_height=leg_length-0.05 
@@ -48,11 +41,10 @@ class LegWheelController:
         torque = float(self.balance.update(observation['balance'], mass_center_height)[0])
         self.last_info = {'status': self.balance.last_status,
                           'leg_length': leg_length, 'total_wheel_torque': torque}
-        # np.r_ 把四个腿目标角和两个轮力矩拼成长度为 6 的一维 action：
-        # [phi1_right, phi4_right, phi1_left, phi4_left, tau_right, tau_left]。
-        # 前四项单位 rad，采用 VMC 坐标；后两项单位 Nm。
+        # action = [tau_phi1_R, tau_phi4_R, tau_phi1_L, tau_phi4_L, tau_R, tau_L]。
+        # 六项全部为 Nm；后端负责交换左腿两项以匹配 XML 顺序。
         # MPC 的 torque 是左右轮总力矩，直行时均分，每个轮子给 torque / 2。
-        return np.r_[self.last_leg_target, torque / 2, torque / 2]
+        return np.r_[self.last_leg_torque, torque / 2, torque / 2]
 #直角坐标转换成极坐标
 
 class LegController(leg_VMC):
@@ -60,18 +52,35 @@ class LegController(leg_VMC):
     def __init__(self, dt=0.004):
         #先调用父类初始化
         super().__init__()
-        self.height_pid = PID(p=10,i=0.1,d=0.01)
-        self.theta_pid = PID(p=10,i=0.1,d=0.01)
+        self.height_pid = PID(p=800,i=20,d=10,dt=dt)
+        self.theta_pid = PID(p=200,i=10,d=10,dt=dt)
         self.dt=dt
     def kinematic_control(self,target_x,target_y,phi1,phi4):
         # 先运动学正解算出当前的腿长和腿角度
         self.vmc_calc_pos(dt=self.dt, phi1=phi1, phi4=phi4)
         target_vector=LegController.cartesian_to_polar(target_x,target_y)
         return self.inverse_kinematics(*target_vector)
-    
+    def vmc_control(self,target_x,target_y,phi1,phi4,g_force=14.8*9.81):
+        # 正解得到当前腿长、方向；PID 输出虚拟力 F0 和虚拟力矩 Tp。
+        self.vmc_calc_pos(dt=self.dt, phi1=phi1, phi4=phi4)
+        target_vector=LegController.cartesian_to_polar(target_x,target_y)
+        #F0是沿着轴向的力，Tp是绕着轴的力矩
+        #将直角坐标力转化成极坐标力
+        F0=self.height_pid.calc(self.L0,target_vector[0])+g_force/2
+        Tp=self.theta_pid.calc(self.theta,target_vector[1])
+        
+        # self.F0,self.Tp=self.cartesian_to_polar_force(0,-10)
+        self.F0,self.Tp=F0,Tp
+        # tau = J.T @ [F0, Tp]，返回 [phi1 力矩, phi4 力矩]。
+        self.vmc_calc_torque()
+        return np.array(self.torque_set)
+
     @staticmethod
     def cartesian_to_polar(x, y):
         r = np.sqrt(x**2 + y**2)
         theta = np.arctan2(y, x)
         return r, theta
-    
+    # def cartesian_to_polar_force(self,Fx, Fy):
+    #     F0 = Fx*math.cos(self.theta) + Fy*math.sin(self.theta)
+    #     Tp = Fy*math.cos(self.theta) - Fx*math.sin(self.theta)
+    #     return F0, Tp

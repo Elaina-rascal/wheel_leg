@@ -39,7 +39,7 @@
   <worldbody>
     <!-- <body name="base" pos="0 0 0.5" quat="0.9659258262890683 0 0.25881904510252076 0"> -->
     <body name="base" pos="0 0 0.2545" >
-    <!-- "扣雷挖及悠打"，注释下面这行代码可以让车身悬浮在空中 -->
+    <!-- 保留自由关节；悬空固定由 env.xml 中的 suspend_base 焊接约束实现。 -->
       <joint name="base_free" type="free"/>
       <site name="imu" type="box" size="0.002 0.002 0.002"  rgba="1 1 0 1"/>
       <geom type="mesh" material="base_mat" mesh="base_link" 
@@ -151,14 +151,15 @@
   </equality>
 
   <actuator>
-    <position name="Right_front_joint_act" joint="jAB" kp="100" kv="10"
-              ctrlrange="-1.57 0.5" forcerange="-20 20" />
-    <position name="Right_rear_joint_act" joint="jAG" kp="100" kv="10"
-              ctrlrange="-1.57 0.3" forcerange="-20 20" />
-    <position name="Left_front_joint_act" joint="jIJ" kp="100" kv="10"
-              ctrlrange="-0.5 1.57" forcerange="-20 20" />
-    <position name="Left_rear_joint_act" joint="jIO" kp="100" kv="10"
-              ctrlrange="-0.3 1.57" forcerange="-20 20" />
+    <!-- gear=1 的铰链 motor：ctrl 直接是关节力矩 Nm，不含内部位置 PD。 -->
+    <motor name="Right_front_joint_act" joint="jAB" gear="1"
+           ctrlrange="-20 20" forcerange="-20 20"/>
+    <motor name="Right_rear_joint_act" joint="jAG" gear="1"
+           ctrlrange="-20 20" forcerange="-20 20"/>
+    <motor name="Left_front_joint_act" joint="jIJ" gear="1"
+           ctrlrange="-20 20" forcerange="-20 20"/>
+    <motor name="Left_rear_joint_act" joint="jIO" gear="1"
+           ctrlrange="-20 20" forcerange="-20 20"/>
 
     <general name="Right_Wheel_act"       joint="jwheel_right" gainprm="1" ctrlrange="-4 +4"   />
     <general name="Left_Wheel_act"        joint="jwheel_left"  gainprm="-1" ctrlrange="-4 +4"   />

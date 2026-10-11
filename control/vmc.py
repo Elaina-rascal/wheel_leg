@@ -116,11 +116,8 @@ class leg_VMC:
         numerator = self.B0 + math.sqrt(discriminant)
         denominator = self.A0 + self.C0
         
-        # 避免除零错误
-        if abs(denominator) < 1e-12:
-            self.phi2 = 0.0
-        else:
-            self.phi2 = 2 * math.atan2(numerator, denominator)
+        # atan2 允许第二个参数为零，不能因此把有效构型的 phi2 设为零。
+        self.phi2 = 2 * math.atan2(numerator, denominator)
         
         # 计算phi3
         dy = self.YB - self.YD + self.l2 * math.sin(self.phi2)
@@ -147,6 +144,7 @@ class leg_VMC:
         # 计算phi0的变化率（数值微分）
         if self.first_flag == 0:
             self.last_phi0 = self.phi0
+            self.last_L0 = self.L0
             self.first_flag = 1
 
         self.d_phi0 = (self.phi0 - self.last_phi0) / dt
@@ -297,7 +295,8 @@ class leg_VMC:
         self.j22 = (self.l4 * math.cos(self.phi0 - self.phi2) * 
                    math.sin(self.phi3 - self.phi4)) / (self.L0 * sin_phi3_phi2)
         
-        self.torque_set[1] = self.j11 * self.F0 + self.j12 * self.Tp
-        self.torque_set[0] = self.j21 * self.F0 + self.j22 * self.Tp
+        # 顺序与主动关节 phi1、phi4 一致。
+        self.torque_set[0] = self.j11 * self.F0 + self.j12 * self.Tp
+        self.torque_set[1] = self.j21 * self.F0 + self.j22 * self.Tp
 
     #Tp：扭转力；F0：支持力

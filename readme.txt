@@ -15,7 +15,7 @@ MPC 使用容器内已有的 CasADi 和 acados_template。
     simulation/gym_env.py      Gymnasium 环境和等待控制消息时同步 UI 的 worker
     simulation/rotations.py    四元数与欧拉角转换
     MJCF/                      XML、网格和模型资源（根目录）
-    control/controller.py     MPC 与逆解组合，只读取状态快照
+    control/controller.py     MPC 与 VMC 力矩控制，只读取状态快照
     control/mpc.py             平衡模型与 acados 求解器
     control/vmc.py             机构运动学和 VMC
     control/pid.py             PID 工具
@@ -26,16 +26,17 @@ MPC 使用容器内已有的 CasADi 和 acados_template。
 控制器停在断点时仿真等待动作，worker 每约 16 ms 同步 UI。
 按 ESC 关闭 viewer 或 Ctrl+C 退出。
 
-初始姿态在 MJCF/robot.xml 中定义。
-控制目标为相对车身 90 度、腿长 0.355 m，目标位置为 0。
+初始姿态在 MJCF/robot.xml 中定义，机身 z=0.2545 m，直接接触地面。
+MJCF/env.xml 的 suspend_base 默认关闭，active=true 可固定机身。
+腿部目标在 controller.py 两侧 vmc_control 调用处修改。
 逆解 target_theta 与 VMC theta 从车身局部 x 正轴逆时针量取，单位 rad；
 垂直目标为 pi/2（90 度），与正运动学 phi0 一致。
 
 Gymnasium 接口在 simulation/gym_env.py 中定义：
     observation 为 Dict：balance=[theta, theta_dot, x, dx]，
     joint_pos=四关节角，wheel_vel=右/左轮角速度。
-    action=[phi1_right, phi4_right, phi1_left, phi4_left, tau_right, tau_left]。
-    前四维单位 rad，采用 VMC 坐标；后两维单位 Nm。
+    action=[tau_phi1_right, tau_phi4_right, tau_phi1_left, tau_phi4_left, tau_right, tau_left]。
+    六项全部为 Nm；腿 motor 限幅 ±20 Nm，轮执行器限幅 ±4 Nm。
     Gym 不做重复动作检查或 clip，执行器限位由后端和 XML 处理。
     reward 当前为 0；训练 RL 前在此定义奖励和任务终止条件。
 
